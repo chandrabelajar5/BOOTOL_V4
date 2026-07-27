@@ -523,15 +523,35 @@
     async function validasiKepalaDinas(id) {
         const password = prompt("Masukkan Password Admin untuk menandai disposisi Kepala Dinas sudah diteruskan/disetujui:");
         if (password === null) return;
+
+        // Buka tab kosong SEKARANG JUGA (masih dalam konteks klik user), sebelum ada
+        // proses async apa pun. Kalau window.open dipanggil setelah await (mis. setelah
+        // panggilAPI selesai), browser (Chrome/Safari dll) akan menganggap itu bukan lagi
+        // hasil klik langsung dan diam-diam MEMBLOKIR pop-up-nya — itu sebabnya chat WA
+        // pembayaran kadang tidak muncul. Dengan membuka tab kosong dulu lalu mengarahkan
+        // (redirect) tab tsb belakangan, pop-up-nya tidak diblokir.
+        const waWindow = window.open('', '_blank');
+
         const hasil = await panggilAPI({ action: 'validasiKepalaDinas', id, password });
         if (hasil.success) {
             await muatSemuaBooking();
             const b = daftarBookingTerakhir.find(x => x.id === id);
             if (b) {
                 const pesan = `Yth. ${b.nama},\n\nDisposisi Kepala Dinas untuk permohonan booking Anda di ${lokasiTampilDari(b)} pada ${b.tanggal} jam ${b.mulai} - ${b.selesai} sudah *disetujui/diteruskan*.\n\nTotal biaya: ${formatRupiah(b.totalHarga)}\n\nMohon segera lakukan pembayaran melalui salah satu cara berikut:\n\n${INFO_PEMBAYARAN}\n\nSetelah pembayaran kami terima dan verifikasi, surat balasan resmi (sudah ditandatangani Kepala Dinas) akan langsung kami kirimkan melalui chat WhatsApp ini. Mohon kirimkan bukti transfer/pembayaran ke chat ini setelah membayar.\n\nTerima kasih.\n- Admin BOOTOL`;
-                bukaWA(b.wa, pesan);
+                const nomor = formatNomorWA(b.wa);
+                const linkWA = `https://wa.me/${nomor}?text=${encodeURIComponent(pesan)}`;
+                if (waWindow) {
+                    waWindow.location.href = linkWA;
+                } else {
+                    // Fallback kalau tab kosong tadi tetap gagal dibuka (mis. pop-up
+                    // sudah diblokir dari awal oleh pengaturan browser).
+                    bukaWA(b.wa, pesan);
+                }
+            } else if (waWindow) {
+                waWindow.close();
             }
         } else {
+            if (waWindow) waWindow.close();
             alert(hasil.message || 'Gagal memvalidasi.');
         }
     }
