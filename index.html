@@ -79,34 +79,13 @@
                 <div style="flex: 1;"><label>Selesai Jam:</label><input type="time" id="jamSelesai" required onchange="tampilkanInfoHarga()"></div>
             </div>
 
-            <label>Upload Surat Permohonan Penyewaan (dari pemohon, untuk diteruskan ke Kepala Dinas):</label>
+            <label>Upload Surat Permohonan Penyewaan (dari pemohon, untuk diajukan disposisi ke Kepala Dinas):</label>
             <input type="file" id="suratPenyewa" accept="application/pdf,image/*" required>
-            <p style="font-size:12px;color:#777;margin-top:-12px;">Format PDF atau foto/scan surat, maksimal 3MB. Karena ini menyangkut sewa lahan/fasilitas milik pemerintah, surat ini harus divalidasi oleh Kepala Dinas terlebih dahulu sebelum Anda dapat melakukan pembayaran.</p>
+            <p style="font-size:12px;color:#777;margin-top:-12px;">Format PDF atau foto/scan surat, maksimal 3MB. Karena ini menyangkut sewa lahan/fasilitas milik pemerintah, surat ini perlu menunggu disposisi dari Kepala Dinas. Admin akan menghubungi Anda via WhatsApp untuk proses selanjutnya (termasuk arahan pembayaran).</p>
 
             <button type="submit">Kirim Surat Permohonan</button>
             <button type="button" class="btn-download" onclick="exportKeExcel()">Download Data (XLS/CSV)</button>
         </form>
-    </div>
-
-    <!-- STEP 2: PEMBAYARAN -->
-    <div class="box" id="paymentBox" style="display:none;">
-        <h3>Pembayaran</h3>
-        <p style="font-size:13px;color:#777;margin-top:-10px;">Surat permohonan Anda sudah divalidasi Kepala Dinas. Silakan lakukan pembayaran berikut.</p>
-        <div class="ringkasan" id="ringkasanBooking"></div>
-        <p><strong>Total Pembayaran: <span id="totalBayar"></span></strong></p>
-
-        <div class="rekening-box">
-            <p>Silakan transfer ke rekening berikut:</p>
-            <p><strong>Bank BCA - 1234567890</strong></p>
-            <p>a.n. BOOTOL Tuban</p>
-            <p style="font-size:12px; color:#777;">*Nomor rekening &amp; nama penerima dummy, silakan sesuaikan.</p>
-        </div>
-
-        <label>Upload Bukti Transfer (gambar, maks 2MB):</label>
-        <input type="file" id="buktiTransfer" accept="image/*" required>
-
-        <button type="button" onclick="kirimBuktiPembayaran()">Kirim Bukti Pembayaran</button>
-        <button type="button" class="btn-back" onclick="batalPembayaran()">Kembali / Batal</button>
     </div>
 
     <h3>Daftar Booking</h3>
@@ -115,7 +94,7 @@
             <tr>
                 <th>No</th><th>Nama</th><th>Alamat</th><th>WA</th><th>Lokasi</th><th>Jenis Lapangan / Penggunaan</th>
                 <th>Tanggal</th><th>Jam</th><th>Durasi</th><th>Harga</th>
-                <th>Status Bayar</th><th>Status Surat</th><th>Status Balasan</th><th>Aksi</th>
+                <th>Status Disposisi</th><th>Status Balasan</th><th>Aksi</th>
             </tr>
         </thead>
         <tbody id="tabelBody"></tbody>
@@ -134,8 +113,7 @@
     // Jam mulainya "malam" (24 jam). Sebelum jam ini dianggap siang/pagi-sore.
     const JAM_MALAM_MULAI = 18; // jam 18:00
 
-    let daftarBookingTerakhir = [];      // cache data terakhir dari server (dipakai utk cek bentrok & buka pembayaran)
-    let currentBookingIdPembayaran = null;
+    let daftarBookingTerakhir = [];      // cache data terakhir dari server (dipakai utk cek bentrok & kirim WA)
     let currentBookingIdBalasan = null;
     let passwordBalasanSementara = null;
 
@@ -154,17 +132,17 @@
 
     async function muatSemuaBooking() {
         if (API_URL.includes('TEMPEL_URL_WEB_APP')) {
-            tabelBody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#c0392b;">&#9888; API_URL belum diisi. Buka file ini dengan editor teks, cari baris "const API_URL", lalu ganti dengan URL Web App Apps Script Anda.</td></tr>';
+            tabelBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#c0392b;">&#9888; API_URL belum diisi. Buka file ini dengan editor teks, cari baris "const API_URL", lalu ganti dengan URL Web App Apps Script Anda.</td></tr>';
             return;
         }
-        tabelBody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#777;">Memuat data...</td></tr>';
+        tabelBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#777;">Memuat data...</td></tr>';
         try {
             const res = await fetch(API_URL);
             const data = await res.json();
             daftarBookingTerakhir = data;
             renderTabel(data);
         } catch (err) {
-            tabelBody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#c0392b;">Gagal memuat data. Cek koneksi internet, atau pastikan URL Web App masih aktif.</td></tr>';
+            tabelBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#c0392b;">Gagal memuat data. Cek koneksi internet, atau pastikan URL Web App masih aktif.</td></tr>';
             console.error(err);
         }
     }
@@ -365,13 +343,18 @@
         return '-';
     }
 
+    function lokasiTampilDari(b) {
+        const jenis = jenisTampilDari(b);
+        return (jenis && jenis !== '-') ? `${b.lokasi} - ${jenis}` : b.lokasi;
+    }
+
     function exportKeExcel() {
-        let csvContent = "\uFEFFNo,Nama,Alamat,Nomor WA,Lokasi,Jenis Lapangan / Penggunaan,Tanggal,Jam,Durasi,Harga,Status Bayar,Status Surat,Status Balasan\n";
+        let csvContent = "\uFEFFNo,Nama,Alamat,Nomor WA,Lokasi,Jenis Lapangan / Penggunaan,Tanggal,Jam,Durasi,Harga,Status Disposisi,Status Balasan\n";
         daftarBookingTerakhir.forEach((b, i) => {
             const baris = [
                 i + 1, b.nama, b.alamat, b.wa, b.lokasi, jenisTampilDari(b), b.tanggal,
                 `${b.mulai} - ${b.selesai}`, b.durasiString, formatRupiah(b.totalHarga),
-                b.statusBayar, b.statusSurat, b.statusBalasan
+                b.statusSurat, b.statusBalasan
             ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(",");
             csvContent += baris + "\n";
         });
@@ -486,7 +469,7 @@
                 document.getElementById('jenisLapanganWrapper').style.display = 'none';
                 document.getElementById('jenisPenggunaanWrapper').style.display = 'none';
                 document.getElementById('infoHarga').innerText = '';
-                alert("Surat permohonan berhasil dikirim. Booking berstatus 'Menunggu Validasi Kepala Dinas'. Pembayaran baru bisa dilakukan setelah surat divalidasi.");
+                alert("Surat permohonan berhasil dikirim. Admin akan menghubungi Anda via WhatsApp untuk proses selanjutnya (menunggu disposisi Kepala Dinas, lalu arahan pembayaran).");
                 muatSemuaBooking();
             } else {
                 alert(hasil.message || 'Gagal mengirim data, silakan coba lagi.');
@@ -500,98 +483,50 @@
         window.open(url, '_blank');
     }
 
-    // Dipanggil dari tombol "Bayar Sekarang" pada baris yang suratnya sudah divalidasi Kepala Dinas.
-    function bukaPembayaran(id) {
+    // Format nomor WA ke format internasional (62...) supaya link wa.me valid
+    function formatNomorWA(wa) {
+        let nomor = String(wa).replace(/[^0-9]/g, '');
+        if (nomor.startsWith('0')) nomor = '62' + nomor.slice(1);
+        else if (!nomor.startsWith('62')) nomor = '62' + nomor;
+        return nomor;
+    }
+
+    function bukaWA(nomorWaMentah, pesan) {
+        const nomor = formatNomorWA(nomorWaMentah);
+        window.open(`https://wa.me/${nomor}?text=${encodeURIComponent(pesan)}`, '_blank');
+    }
+
+    // Tombol opsional (tanpa password, tidak mengubah status) untuk mengingatkan penyewa
+    // bahwa berkasnya sedang menunggu disposisi Kepala Dinas.
+    function kirimWAMenungguDisposisi(id) {
         const b = daftarBookingTerakhir.find(x => x.id === id);
-        if (!b) { alert('Booking tidak ditemukan, silakan refresh halaman.'); return; }
-        if (b.statusSurat !== 'divalidasi') {
-            alert('Surat permohonan belum divalidasi oleh Kepala Dinas. Pembayaran belum bisa dilakukan.');
-            return;
-        }
-
-        currentBookingIdPembayaran = id;
-        const jenis = jenisTampilDari(b);
-        const lokasiTampil = (jenis && jenis !== '-') ? `${b.lokasi} - ${jenis}` : b.lokasi;
-
-        document.getElementById('ringkasanBooking').innerHTML = `
-            <p><strong>Nama:</strong> ${b.nama}</p>
-            <p><strong>Lokasi:</strong> ${lokasiTampil}</p>
-            <p><strong>Tanggal:</strong> ${b.tanggal}</p>
-            <p><strong>Jam:</strong> ${b.mulai} - ${b.selesai} (${b.durasiString})</p>
-        `;
-        document.getElementById('totalBayar').innerText = formatRupiah(b.totalHarga);
-
-        document.getElementById('formBox').style.display = 'none';
-        document.getElementById('paymentBox').style.display = 'block';
-        document.getElementById('paymentBox').scrollIntoView({ behavior: 'smooth' });
+        if (!b) return;
+        const pesan = `Yth. ${b.nama},\n\nTerima kasih telah mengajukan permohonan booking ${lokasiTampilDari(b)} pada ${b.tanggal} jam ${b.mulai} - ${b.selesai}.\n\nPermohonan Anda sedang kami proses dan menunggu disposisi dari Kepala Dinas. Kami akan menghubungi Anda kembali segera setelah disposisi diterima.\n\nTerima kasih.\n- Admin BOOTOL`;
+        bukaWA(b.wa, pesan);
     }
 
-    function batalPembayaran() {
-        currentBookingIdPembayaran = null;
-        document.getElementById('buktiTransfer').value = '';
-        document.getElementById('paymentBox').style.display = 'none';
-        document.getElementById('formBox').style.display = 'block';
-    }
-
-    function kirimBuktiPembayaran() {
-        if (!currentBookingIdPembayaran) {
-            alert("Booking tidak ditemukan, silakan coba lagi dari tombol 'Bayar Sekarang' pada tabel.");
-            batalPembayaran();
-            return;
-        }
-
-        const fileInput = document.getElementById('buktiTransfer');
-        if (!fileInput.files || fileInput.files.length === 0) {
-            alert("Silakan upload bukti transfer terlebih dahulu!");
-            return;
-        }
-
-        const file = fileInput.files[0];
-        if (file.size > 2 * 1024 * 1024) {
-            alert("Ukuran file terlalu besar. Maksimal 2MB.");
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = async function(e) {
-            const hasil = await panggilAPI({
-                action: 'kirimBukti',
-                id: currentBookingIdPembayaran,
-                buktiBase64: e.target.result
-            });
-
-            if (hasil.success) {
-                currentBookingIdPembayaran = null;
-                fileInput.value = '';
-                document.getElementById('paymentBox').style.display = 'none';
-                document.getElementById('formBox').style.display = 'block';
-                alert("Bukti pembayaran terkirim. Booking berstatus 'Menunggu Verifikasi Pembayaran'.");
-                muatSemuaBooking();
-            } else {
-                alert(hasil.message || 'Gagal mengirim bukti pembayaran, silakan coba lagi.');
-            }
-        };
-        reader.readAsDataURL(file);
-    }
-
+    // Aksi utama: menandai bahwa Kepala Dinas sudah memberi disposisi/persetujuan,
+    // lalu mengirim WA ke penyewa berisi info bahwa mereka boleh lanjut membayar via chat WA ini.
     async function validasiKepalaDinas(id) {
-        const password = prompt("Masukkan Password Admin untuk validasi surat oleh Kepala Dinas:");
+        const password = prompt("Masukkan Password Admin untuk menandai disposisi Kepala Dinas sudah diteruskan/disetujui:");
         if (password === null) return;
         const hasil = await panggilAPI({ action: 'validasiKepalaDinas', id, password });
-        if (hasil.success) muatSemuaBooking();
-        else alert(hasil.message || 'Gagal memvalidasi.');
+        if (hasil.success) {
+            await muatSemuaBooking();
+            const b = daftarBookingTerakhir.find(x => x.id === id);
+            if (b) {
+                const pesan = `Yth. ${b.nama},\n\nDisposisi Kepala Dinas untuk permohonan booking Anda di ${lokasiTampilDari(b)} pada ${b.tanggal} jam ${b.mulai} - ${b.selesai} sudah *disetujui/diteruskan*.\n\nTotal biaya: ${formatRupiah(b.totalHarga)}\n\nSilakan lanjutkan pembayaran melalui chat WhatsApp ini. Kami akan kirimkan nomor rekening/QRIS untuk pembayaran di chat ini.\n\nTerima kasih.\n- Admin BOOTOL`;
+                bukaWA(b.wa, pesan);
+            }
+        } else {
+            alert(hasil.message || 'Gagal memvalidasi.');
+        }
     }
 
-    async function prosesKonfirmasi(id) {
-        const password = prompt("Masukkan Password Admin untuk konfirmasi pembayaran:");
-        if (password === null) return;
-        const hasil = await panggilAPI({ action: 'konfirmasiLunas', id, password });
-        if (hasil.success) muatSemuaBooking();
-        else alert(hasil.message || 'Gagal.');
-    }
-
+    // Diklik admin kapan saja setelah disposisi diteruskan (biasanya setelah pembayaran
+    // dikonfirmasi manual via WA, di luar sistem ini) untuk mengunggah surat balasan resmi.
     function uploadSuratBalasan(id) {
-        const password = prompt('Masukkan Password Admin untuk mengunggah surat balasan (sudah di-TTE Kepala Dinas):');
+        const password = prompt('Masukkan Password Admin untuk mengunggah surat balasan akhir (sudah di-TTE Kepala Dinas):');
         if (password === null) return;
         currentBookingIdBalasan = id;
         passwordBalasanSementara = password;
@@ -630,24 +565,11 @@
         reader.readAsDataURL(file);
     });
 
-    // Format nomor WA ke format internasional (62...) supaya link wa.me valid
-    function formatNomorWA(wa) {
-        let nomor = String(wa).replace(/[^0-9]/g, '');
-        if (nomor.startsWith('0')) nomor = '62' + nomor.slice(1);
-        else if (!nomor.startsWith('62')) nomor = '62' + nomor;
-        return nomor;
-    }
-
     function kirimSuratBalasanWA(id) {
         const b = daftarBookingTerakhir.find(x => x.id === id);
         if (!b) return;
-        const jenis = jenisTampilDari(b);
-        const lokasiTampil = (jenis && jenis !== '-') ? `${b.lokasi} - ${jenis}` : b.lokasi;
-        const nomor = formatNomorWA(b.wa);
-
-        const pesan = `Yth. ${b.nama},\n\nBooking Anda di ${lokasiTampil} pada ${b.tanggal} jam ${b.mulai} - ${b.selesai} sudah *Lunas* dan surat permohonan sudah *disetujui Kepala Dinas*.\n\nSurat balasan resmi (sudah ditandatangani Kepala Dinas) dapat diunduh melalui link berikut:\n${b.suratBalasanUrl}\n\nTerima kasih.\n- Admin BOOTOL`;
-
-        window.open(`https://wa.me/${nomor}?text=${encodeURIComponent(pesan)}`, '_blank');
+        const pesan = `Yth. ${b.nama},\n\nTerima kasih, pembayaran booking Anda di ${lokasiTampilDari(b)} pada ${b.tanggal} jam ${b.mulai} - ${b.selesai} telah kami terima.\n\nSurat balasan resmi (sudah ditandatangani Kepala Dinas) dapat diunduh melalui link berikut:\n${b.suratBalasanUrl}\n\nTerima kasih.\n- Admin BOOTOL`;
+        bukaWA(b.wa, pesan);
     }
 
     async function tandaiBalasanTerkirim(id) {
@@ -670,7 +592,7 @@
     function renderTabel(data) {
         tabelBody.innerHTML = '';
         if (!data || data.length === 0) {
-            tabelBody.innerHTML = '<tr><td colspan="14" style="text-align:center;color:#777;">Belum ada data booking.</td></tr>';
+            tabelBody.innerHTML = '<tr><td colspan="13" style="text-align:center;color:#777;">Belum ada data booking.</td></tr>';
             return;
         }
 
@@ -678,39 +600,25 @@
             const row = document.createElement('tr');
             const jenisTampil = jenisTampilDari(b);
 
-            let statusBayarTeks = 'Menunggu Validasi Surat';
-            let statusBayarClass = 'status-menunggu';
-            if (b.statusBayar === 'menunggu') statusBayarTeks = 'Menunggu Pembayaran';
-            else if (b.statusBayar === 'menunggu_verifikasi') statusBayarTeks = 'Menunggu Verifikasi Pembayaran';
-            else if (b.statusBayar === 'lunas') { statusBayarTeks = 'Terkonfirmasi (Lunas)'; statusBayarClass = 'status-lunas'; }
-
-            let statusSuratTeks = 'Menunggu Validasi Kepala Dinas';
+            let statusSuratTeks = 'Menunggu Diproses Admin';
             let statusSuratClass = 'status-menunggu';
-            if (b.statusSurat === 'divalidasi') { statusSuratTeks = 'Sudah Divalidasi Kepala Dinas'; statusSuratClass = 'status-lunas'; }
+            if (b.statusSurat === 'divalidasi') { statusSuratTeks = 'Disposisi Diteruskan - Silakan Bayar via WA'; statusSuratClass = 'status-lunas'; }
 
             let statusBalasanTeks = '-';
             if (b.statusBalasan === 'diunggah') statusBalasanTeks = 'Sudah Diunggah, Siap Dikirim';
             else if (b.statusBalasan === 'terkirim') statusBalasanTeks = 'Sudah Dikirim ke WA';
-            else if (b.statusSurat === 'divalidasi' && b.statusBayar === 'lunas' && b.statusBalasan === 'na') {
+            else if (b.statusSurat === 'divalidasi' && b.statusBalasan === 'na') {
                 statusBalasanTeks = 'Menunggu Surat Balasan Diunggah';
             }
 
             let aksiHtml = `<button type="button" class="btn-lihat" onclick="lihatDokumen('${b.suratUrl}')">Lihat Surat</button>`;
 
             if (b.statusSurat === 'menunggu') {
-                aksiHtml += `<button type="button" class="btn-forward" onclick="validasiKepalaDinas('${b.id}')">Validasi Kepala Dinas</button>`;
+                aksiHtml += `<button type="button" class="btn-kirim-wa" onclick="kirimWAMenungguDisposisi('${b.id}')">Kirim WA: Menunggu Disposisi</button>`;
+                aksiHtml += `<button type="button" class="btn-forward" onclick="validasiKepalaDinas('${b.id}')">Validasi &amp; Kirim Instruksi Pembayaran</button>`;
             }
-            if (b.statusSurat === 'divalidasi' && b.statusBayar === 'menunggu') {
-                aksiHtml += `<button type="button" class="btn-forward" onclick="bukaPembayaran('${b.id}')">Bayar Sekarang</button>`;
-            }
-            if (b.buktiUrl) {
-                aksiHtml += `<button type="button" class="btn-lihat" onclick="lihatDokumen('${b.buktiUrl}')">Lihat Bukti</button>`;
-            }
-            if (b.statusBayar === 'menunggu_verifikasi') {
-                aksiHtml += `<button type="button" class="btn-confirm" onclick="prosesKonfirmasi('${b.id}')">Konfirmasi Lunas</button>`;
-            }
-            if (b.statusSurat === 'divalidasi' && b.statusBayar === 'lunas' && b.statusBalasan === 'na') {
-                aksiHtml += `<button type="button" class="btn-balasan" onclick="uploadSuratBalasan('${b.id}')">Upload Surat Balasan</button>`;
+            if (b.statusSurat === 'divalidasi' && b.statusBalasan === 'na') {
+                aksiHtml += `<button type="button" class="btn-balasan" onclick="uploadSuratBalasan('${b.id}')">Upload Surat Balasan Akhir</button>`;
             }
             if (b.suratBalasanUrl) {
                 aksiHtml += `<button type="button" class="btn-lihat" onclick="lihatDokumen('${b.suratBalasanUrl}')">Lihat Surat Balasan</button>`;
@@ -733,7 +641,6 @@
                 <td>${b.mulai} - ${b.selesai}</td>
                 <td>${b.durasiString}</td>
                 <td>${formatRupiah(b.totalHarga)}</td>
-                <td class="status-bayar-cell ${statusBayarClass}">${statusBayarTeks}</td>
                 <td class="status-surat-cell ${statusSuratClass}">${statusSuratTeks}</td>
                 <td class="status-balasan-cell">${statusBalasanTeks}</td>
                 <td class="aksi-cell">${aksiHtml}</td>
